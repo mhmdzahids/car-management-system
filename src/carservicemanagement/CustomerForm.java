@@ -44,12 +44,10 @@ public class CustomerForm extends JFrame {
         JButton addButton = new JButton("Add");
         JButton updateButton = new JButton("Update");
         JButton deleteButton = new JButton("Delete");
-        JButton refreshButton = new JButton("Refresh");
 
         buttonPanel.add(addButton);
         buttonPanel.add(updateButton);
         buttonPanel.add(deleteButton);
-        buttonPanel.add(refreshButton);
 
         panel.add(buttonPanel, BorderLayout.SOUTH);
 
@@ -62,7 +60,6 @@ public class CustomerForm extends JFrame {
         addButton.addActionListener(e -> addCustomer());
         updateButton.addActionListener(e -> updateCustomer());
         deleteButton.addActionListener(e -> deleteCustomer());
-        refreshButton.addActionListener(e -> loadCustomers());
 
         customerTable.addMouseListener(new MouseAdapter() {
             public void mouseClicked(MouseEvent e) {

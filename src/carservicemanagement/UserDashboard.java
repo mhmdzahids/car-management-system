@@ -13,9 +13,10 @@ public class UserDashboard extends JFrame {
     private DefaultTableModel vehicleTableModel;
     private JTextField licensePlateField;
     private JTextField modelField;
-    private JButton addVehicleButton, bookAppointmentButton, logoutButton;
+    private JButton addVehicleButton, updateVehicleButton, deleteVehicleButton, bookAppointmentButton, logoutButton;
     private JTable appointmentTable;
     private DefaultTableModel appointmentTableModel;
+    private int selectedVehicleId = -1;
 
     public UserDashboard(int userId) {
         this.userId = userId;
@@ -57,7 +58,7 @@ public class UserDashboard extends JFrame {
         vehiclePanel.setBorder(BorderFactory.createTitledBorder("My Vehicles"));
 
         // Vehicle Input Panel
-        JPanel vehicleInputPanel = new JPanel(new GridLayout(3, 2, 10, 10));
+        JPanel vehicleInputPanel = new JPanel(new GridLayout(4, 2, 10, 10));
         vehicleInputPanel.add(new JLabel("License Plate:"));
         licensePlateField = new JTextField();
         vehicleInputPanel.add(licensePlateField);
@@ -70,6 +71,16 @@ public class UserDashboard extends JFrame {
         addVehicleButton.addActionListener(e -> addVehicle());
         vehicleInputPanel.add(addVehicleButton);
         
+        updateVehicleButton = new JButton("Update Vehicle");
+        updateVehicleButton.addActionListener(e -> updateVehicle());
+        updateVehicleButton.setEnabled(false);
+        vehicleInputPanel.add(updateVehicleButton);
+        
+        deleteVehicleButton = new JButton("Delete Vehicle");
+        deleteVehicleButton.addActionListener(e -> deleteVehicle());
+        deleteVehicleButton.setEnabled(false);
+        vehicleInputPanel.add(deleteVehicleButton);
+        
         bookAppointmentButton = new JButton("Book Appointment");
         bookAppointmentButton.addActionListener(e -> bookAppointment());
         vehicleInputPanel.add(bookAppointmentButton);
@@ -80,8 +91,34 @@ public class UserDashboard extends JFrame {
         String[] vehicleColumns = {"Vehicle ID", "License Plate", "Model"};
         vehicleTableModel = new DefaultTableModel(vehicleColumns, 0);
         vehicleTable = new JTable(vehicleTableModel);
+        
+        // Add table selection listener for auto-fill
+        vehicleTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int selectedRow = vehicleTable.getSelectedRow();
+                if (selectedRow >= 0) {
+                    selectedVehicleId = (int) vehicleTableModel.getValueAt(selectedRow, 0);
+                    licensePlateField.setText((String) vehicleTableModel.getValueAt(selectedRow, 1));
+                    modelField.setText((String) vehicleTableModel.getValueAt(selectedRow, 2));
+                    
+                    // Enable update and delete buttons, disable add button
+                    addVehicleButton.setEnabled(false);
+                    updateVehicleButton.setEnabled(true);
+                    deleteVehicleButton.setEnabled(true);
+                }
+            }
+        });
+        
         JScrollPane vehicleScrollPane = new JScrollPane(vehicleTable);
         vehiclePanel.add(vehicleScrollPane, BorderLayout.CENTER);
+        
+        // Add Clear Selection button
+        JPanel vehicleButtonPanel = new JPanel(new FlowLayout());
+        JButton clearSelectionButton = new JButton("Clear Selection");
+        clearSelectionButton.addActionListener(e -> clearVehicleSelection());
+        vehicleButtonPanel.add(clearSelectionButton);
+        vehiclePanel.add(vehicleButtonPanel, BorderLayout.SOUTH);
 
         return vehiclePanel;
     }
@@ -90,14 +127,157 @@ public class UserDashboard extends JFrame {
         JPanel appointmentPanel = new JPanel(new BorderLayout());
         appointmentPanel.setBorder(BorderFactory.createTitledBorder("My Appointments"));
 
-        // Appointment Table
-        String[] appointmentColumns = {"Appointment ID", "Vehicle", "Date", "Status"};
-        appointmentTableModel = new DefaultTableModel(appointmentColumns, 0);
+        // Appointment Table with View Details column
+        String[] appointmentColumns = {"Appointment ID", "Vehicle Plate", "Vehicle Type", "Date", "Status", "Action"};
+        appointmentTableModel = new DefaultTableModel(appointmentColumns, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return column == 5; // Only the Action column is editable (for button)
+            }
+        };
         appointmentTable = new JTable(appointmentTableModel);
+        
+        // Add custom button renderer and editor for the Action column
+        appointmentTable.getColumn("Action").setCellRenderer(new ButtonRenderer());
+        appointmentTable.getColumn("Action").setCellEditor(new ButtonEditor(new JCheckBox()));
+        
         JScrollPane appointmentScrollPane = new JScrollPane(appointmentTable);
         appointmentPanel.add(appointmentScrollPane, BorderLayout.CENTER);
 
         return appointmentPanel;
+    }
+
+    // Custom Button Renderer
+    class ButtonRenderer extends JButton implements TableCellRenderer {
+        public ButtonRenderer() {
+            setOpaque(true);
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value,
+                boolean isSelected, boolean hasFocus, int row, int column) {
+            setText("View Details");
+            return this;
+        }
+    }
+
+    // Custom Button Editor
+    class ButtonEditor extends DefaultCellEditor {
+        protected JButton button;
+        private String label;
+        private boolean isPushed;
+        private int selectedRow;
+
+        public ButtonEditor(JCheckBox checkBox) {
+            super(checkBox);
+            button = new JButton();
+            button.setOpaque(true);
+            button.addActionListener(e -> fireEditingStopped());
+        }
+
+        @Override
+        public Component getTableCellEditorComponent(JTable table, Object value,
+                boolean isSelected, int row, int column) {
+            label = "View Details";
+            button.setText(label);
+            isPushed = true;
+            selectedRow = row;
+            return button;
+        }
+
+        @Override
+        public Object getCellEditorValue() {
+            if (isPushed) {
+                // Get appointment ID from the selected row
+                int appointmentId = (int) appointmentTableModel.getValueAt(selectedRow, 0);
+                showAppointmentDetails(appointmentId);
+            }
+            isPushed = false;
+            return label;
+        }
+
+        @Override
+        public boolean stopCellEditing() {
+            isPushed = false;
+            return super.stopCellEditing();
+        }
+    }
+
+    private void showAppointmentDetails(int appointmentId) {
+        try (Connection conn = DatabaseConnection.getConnection()) {
+            // First, get basic appointment and vehicle info
+            PreparedStatement basicInfoStmt = conn.prepareStatement(
+                "SELECT a.id, a.appointment_date, a.status, v.id as vehicle_id, v.license_plate, v.model " +
+                "FROM appointment a " +
+                "JOIN vehicle v ON a.vehicle_id = v.id " +
+                "WHERE a.id = ?");
+            
+            basicInfoStmt.setInt(1, appointmentId);
+            ResultSet basicRs = basicInfoStmt.executeQuery();
+            
+            if (basicRs.next()) {
+                int vehicleId = basicRs.getInt("vehicle_id");
+                
+                // Build basic details
+                StringBuilder details = new StringBuilder();
+                details.append("Appointment Details\n\n");
+                details.append(String.format("Appointment ID: %d\n", basicRs.getInt("id")));
+                details.append(String.format("Date: %s\n", basicRs.getString("appointment_date")));
+                details.append(String.format("Status: %s\n\n", basicRs.getString("status")));
+                details.append("Vehicle Information:\n");
+                details.append(String.format("License Plate: %s\n", basicRs.getString("license_plate")));
+                details.append(String.format("Model: %s\n\n", basicRs.getString("model")));
+                
+                // Get service records for this vehicle
+                PreparedStatement serviceStmt = conn.prepareStatement(
+                    "SELECT service_date, cost, description FROM service_record " +
+                    "WHERE vehicle_id = ? ORDER BY service_date DESC");
+                
+                serviceStmt.setInt(1, vehicleId);
+                ResultSet serviceRs = serviceStmt.executeQuery();
+                
+                details.append("Service History:\n");
+                double totalCost = 0;
+                boolean hasServices = false;
+                
+                while (serviceRs.next()) {
+                    hasServices = true;
+                    double cost = serviceRs.getDouble("cost");
+                    totalCost += cost;
+                    
+                    details.append(String.format("• Date: %s\n", serviceRs.getString("service_date")));
+                    details.append(String.format("  Cost: Rp %.2f\n", cost));
+                    
+                    String description = serviceRs.getString("description");
+                    if (description != null && !description.trim().isEmpty()) {
+                        details.append(String.format("  Description: %s\n", description));
+                    }
+                    details.append("\n");
+                }
+                
+                if (!hasServices) {
+                    details.append("No service records found for this vehicle.\n\n");
+                }
+                
+                details.append(String.format("Total Service Cost: Rp %.2f", totalCost));
+                
+                // Create a JTextArea for better display of multi-line text
+                JTextArea textArea = new JTextArea(details.toString());
+                textArea.setEditable(false);
+                textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+                textArea.setCaretPosition(0);
+                
+                JScrollPane scrollPane = new JScrollPane(textArea);
+                scrollPane.setPreferredSize(new Dimension(500, 400));
+                
+                JOptionPane.showMessageDialog(this, scrollPane, "Appointment Details", 
+                    JOptionPane.INFORMATION_MESSAGE);
+            }
+        } catch (SQLException ex) {
+            JOptionPane.showMessageDialog(this, 
+                "Error loading appointment details: " + ex.getMessage(), 
+                "Database Error", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     private void loadVehicles() {
@@ -135,7 +315,7 @@ public class UserDashboard extends JFrame {
         appointmentTableModel.setRowCount(0);
         try (Connection conn = DatabaseConnection.getConnection()) {
             PreparedStatement stmt = conn.prepareStatement(
-                "SELECT a.id AS appointment_id, v.license_plate, a.appointment_date AS date, a.status " +
+                "SELECT a.id AS appointment_id, v.license_plate, v.model, a.appointment_date AS date, a.status " +
                 "FROM appointment a " +
                 "JOIN vehicle v ON a.vehicle_id = v.id " +
                 "JOIN customer c ON a.customer_id = c.id " +
@@ -148,8 +328,10 @@ public class UserDashboard extends JFrame {
                 appointmentTableModel.addRow(new Object[]{
                     rs.getInt("appointment_id"),
                     rs.getString("license_plate"),
+                    rs.getString("model"),
                     rs.getString("date"),
-                    rs.getString("status")
+                    rs.getString("status"),
+                    "View Details" // This will be rendered as a button
                 });
             }
         } catch (SQLException ex) {
@@ -200,13 +382,93 @@ public class UserDashboard extends JFrame {
 
             JOptionPane.showMessageDialog(this, "Vehicle added successfully!");
             loadVehicles();
-            licensePlateField.setText("");
-            modelField.setText("");
+            clearVehicleSelection();
         } catch (SQLException ex) {
             JOptionPane.showMessageDialog(this, 
                 "Error adding vehicle: " + ex.getMessage(), 
                 "Database Error", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    private void updateVehicle() {
+        if (selectedVehicleId == -1) {
+            JOptionPane.showMessageDialog(this, "Please select a vehicle to update");
+            return;
+        }
+
+        String licensePlate = licensePlateField.getText().trim();
+        String model = modelField.getText().trim();
+
+        if (licensePlate.isEmpty() || model.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Please fill all fields");
+            return;
+        }
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                 "UPDATE vehicle SET license_plate = ?, model = ? WHERE id = ?")) {
+            
+            stmt.setString(1, licensePlate);
+            stmt.setString(2, model);
+            stmt.setInt(3, selectedVehicleId);
+            
+            int result = stmt.executeUpdate();
+            if (result > 0) {
+                JOptionPane.showMessageDialog(this, "Vehicle updated successfully!");
+                loadVehicles();
+                loadAppointments(); // Refresh appointments as vehicle info might be displayed there
+                clearVehicleSelection();
+            }
+        } catch (SQLException ex) {
+            JOptionPane.showMessageDialog(this, 
+                "Error updating vehicle: " + ex.getMessage(), 
+                "Database Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void deleteVehicle() {
+        if (selectedVehicleId == -1) {
+            JOptionPane.showMessageDialog(this, "Please select a vehicle to delete");
+            return;
+        }
+
+        int confirm = JOptionPane.showConfirmDialog(this, 
+            "Are you sure you want to delete this vehicle?\nThis will also delete all associated appointments and service records.", 
+            "Confirm Delete", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        
+        if (confirm != JOptionPane.YES_OPTION) {
+            return;
+        }
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement("DELETE FROM vehicle WHERE id = ?")) {
+            
+            stmt.setInt(1, selectedVehicleId);
+            int result = stmt.executeUpdate();
+            
+            if (result > 0) {
+                JOptionPane.showMessageDialog(this, "Vehicle deleted successfully!");
+                loadVehicles();
+                loadAppointments(); // Refresh appointments as some might be deleted
+                clearVehicleSelection();
+            }
+        } catch (SQLException ex) {
+            JOptionPane.showMessageDialog(this, 
+                "Error deleting vehicle: " + ex.getMessage(), 
+                "Database Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void clearVehicleSelection() {
+        licensePlateField.setText("");
+        modelField.setText("");
+        selectedVehicleId = -1;
+        vehicleTable.clearSelection();
+        
+        // Reset button states
+        addVehicleButton.setEnabled(true);
+        updateVehicleButton.setEnabled(false);
+        deleteVehicleButton.setEnabled(false);
     }
 
     private void bookAppointment() {

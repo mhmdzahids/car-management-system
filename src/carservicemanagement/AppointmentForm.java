@@ -33,7 +33,6 @@ public class AppointmentForm extends JFrame {
         addButton = new JButton("Add");
         updateButton = new JButton("Update");
         deleteButton = new JButton("Delete");
-        refreshButton = new JButton("Refresh");
         appointmentTable = new JTable();
         
         updateButton.setEnabled(false);
@@ -54,7 +53,6 @@ public class AppointmentForm extends JFrame {
         buttonPanel.add(addButton);
         buttonPanel.add(updateButton);
         buttonPanel.add(deleteButton);
-        buttonPanel.add(refreshButton);
 
         // Layout
         setLayout(new BorderLayout());
@@ -66,7 +64,6 @@ public class AppointmentForm extends JFrame {
         addButton.addActionListener(e -> addAppointment());
         updateButton.addActionListener(e -> updateAppointment());
         deleteButton.addActionListener(e -> deleteAppointment());
-        refreshButton.addActionListener(e -> loadData());
 
         // Table selection listener
         appointmentTable.addMouseListener(new MouseAdapter() {
