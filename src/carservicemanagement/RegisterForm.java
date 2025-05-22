@@ -84,20 +84,29 @@ public class RegisterForm extends JFrame {
                 }
             }
 
-            // Insert user into users table
+            // Insert user into users table and get generated user_id
+            int userId;
             try (PreparedStatement userStmt = conn.prepareStatement(
-                    "INSERT INTO users (username, password, role) VALUES (?, ?, ?)")) {
+                    "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+                    Statement.RETURN_GENERATED_KEYS)) {
                 userStmt.setString(1, username);
                 userStmt.setString(2, password);
                 userStmt.setString(3, "user");
                 userStmt.executeUpdate();
+                ResultSet generatedKeys = userStmt.getGeneratedKeys();
+                if (generatedKeys.next()) {
+                    userId = generatedKeys.getInt(1);
+                } else {
+                    throw new SQLException("Failed to retrieve user ID.");
+                }
             }
 
-            // Insert customer info
+            // Insert customer info with user_id
             try (PreparedStatement custStmt = conn.prepareStatement(
-                    "INSERT INTO customer (name, phone) VALUES (?, ?)")) {
+                    "INSERT INTO customer (name, phone, user_id) VALUES (?, ?, ?)")) {
                 custStmt.setString(1, name);
                 custStmt.setString(2, phone);
+                custStmt.setInt(3, userId);
                 custStmt.executeUpdate();
             }
 

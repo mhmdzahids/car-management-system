@@ -5,6 +5,7 @@ import javax.swing.table.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.sql.*;
+import java.text.SimpleDateFormat;
 
 public class UserDashboard extends JFrame {
     private int userId;
@@ -48,6 +49,7 @@ public class UserDashboard extends JFrame {
         // Load initial data
         loadVehicles();
         loadAppointments();
+        setVisible(true);
     }
 
     private JPanel createVehiclePanel() {
@@ -101,7 +103,6 @@ public class UserDashboard extends JFrame {
     private void loadVehicles() {
         vehicleTableModel.setRowCount(0);
         try (Connection conn = DatabaseConnection.getConnection()) {
-            // Cari customer_id berdasarkan user_id
             PreparedStatement findCustomerStmt = conn.prepareStatement(
                 "SELECT id FROM customer WHERE user_id = ?");
             findCustomerStmt.setInt(1, userId);
@@ -110,7 +111,6 @@ public class UserDashboard extends JFrame {
             if (customerRs.next()) {
                 int customerId = customerRs.getInt("id");
                 
-                // Query vehicles untuk customer ini
                 PreparedStatement stmt = conn.prepareStatement(
                     "SELECT id AS vehicle_id, license_plate, model FROM vehicle WHERE customer_id = ?");
                 stmt.setInt(1, customerId);
@@ -134,34 +134,23 @@ public class UserDashboard extends JFrame {
     private void loadAppointments() {
         appointmentTableModel.setRowCount(0);
         try (Connection conn = DatabaseConnection.getConnection()) {
-            // Cari customer_id berdasarkan user_id
-            PreparedStatement findCustomerStmt = conn.prepareStatement(
-                "SELECT id FROM customer WHERE user_id = ?");
-            findCustomerStmt.setInt(1, userId);
-            ResultSet customerRs = findCustomerStmt.executeQuery();
+            PreparedStatement stmt = conn.prepareStatement(
+                "SELECT a.id AS appointment_id, v.license_plate, a.appointment_date AS date, a.status " +
+                "FROM appointment a " +
+                "JOIN vehicle v ON a.vehicle_id = v.id " +
+                "JOIN customer c ON a.customer_id = c.id " +
+                "WHERE c.user_id = ?");
             
-            if (customerRs.next()) {
-                int customerId = customerRs.getInt("id");
-                
-                // Query appointments untuk vehicles milik customer ini
-                PreparedStatement stmt = conn.prepareStatement(
-                    "SELECT ba.id AS appointment_id, v.license_plate, ba.date, s.description AS status " +
-                    "FROM bookappointment ba " +
-                    "JOIN vehicle v ON ba.vehicle_id = v.id " +
-                    "JOIN status s ON ba.status_id = s.id " +
-                    "WHERE v.customer_id = ?");
-                
-                stmt.setInt(1, customerId);
-                ResultSet rs = stmt.executeQuery();
-                
-                while (rs.next()) {
-                    appointmentTableModel.addRow(new Object[]{
-                        rs.getInt("appointment_id"),
-                        rs.getString("license_plate"),
-                        rs.getString("date"),
-                        rs.getString("status")
-                    });
-                }
+            stmt.setInt(1, userId);
+            ResultSet rs = stmt.executeQuery();
+            
+            while (rs.next()) {
+                appointmentTableModel.addRow(new Object[]{
+                    rs.getInt("appointment_id"),
+                    rs.getString("license_plate"),
+                    rs.getString("date"),
+                    rs.getString("status")
+                });
             }
         } catch (SQLException ex) {
             JOptionPane.showMessageDialog(this, 
@@ -180,7 +169,6 @@ public class UserDashboard extends JFrame {
         }
 
         try (Connection conn = DatabaseConnection.getConnection()) {
-            // Pertama, cari customer_id berdasarkan user_id
             PreparedStatement findCustomerStmt = conn.prepareStatement(
                 "SELECT id FROM customer WHERE user_id = ?");
             findCustomerStmt.setInt(1, userId);
@@ -190,7 +178,6 @@ public class UserDashboard extends JFrame {
             if (rs.next()) {
                 customerId = rs.getInt("id");
             } else {
-                // Jika customer belum ada, buat customer baru
                 PreparedStatement createCustomerStmt = conn.prepareStatement(
                     "INSERT INTO customer (user_id, name) VALUES (?, ?)", 
                     Statement.RETURN_GENERATED_KEYS);
@@ -204,7 +191,6 @@ public class UserDashboard extends JFrame {
                 }
             }
 
-            // Tambahkan kendaraan dengan customer_id yang didapat
             PreparedStatement insertVehicleStmt = conn.prepareStatement(
                 "INSERT INTO vehicle (customer_id, license_plate, model) VALUES (?, ?, ?)");
             insertVehicleStmt.setInt(1, customerId);
@@ -231,26 +217,35 @@ public class UserDashboard extends JFrame {
         }
 
         int vehicleId = (int) vehicleTableModel.getValueAt(selectedRow, 0);
-        
-        // Open a dialog to book appointment
         String date = JOptionPane.showInputDialog(this, "Enter Appointment Date (YYYY-MM-DD):");
-        
+
         if (date != null && !date.trim().isEmpty()) {
-            try (Connection conn = DatabaseConnection.getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(
-                         "INSERT INTO bookappointment (vehicle_id, date, status_id) " +
-                         "VALUES (?, ?, (SELECT id FROM status WHERE description = 'Pending'))")) {
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+            sdf.setLenient(false);
+            try {
+                sdf.parse(date);
+                try (Connection conn = DatabaseConnection.getConnection();
+                     PreparedStatement stmt = conn.prepareStatement(
+                             "INSERT INTO appointment (customer_id, vehicle_id, appointment_date, status) " +
+                             "SELECT c.id, ?, ?, 'Pending' " +
+                             "FROM customer c WHERE c.user_id = ?")) {
 
-                stmt.setInt(1, vehicleId);
-                stmt.setString(2, date);
-                stmt.executeUpdate();
+                    stmt.setInt(1, vehicleId);
+                    stmt.setString(2, date);
+                    stmt.setInt(3, userId);
+                    stmt.executeUpdate();
 
-                JOptionPane.showMessageDialog(this, "Appointment booked successfully!");
-                loadAppointments();
-            } catch (SQLException ex) {
+                    JOptionPane.showMessageDialog(this, "Appointment booked successfully!");
+                    loadAppointments();
+                } catch (SQLException ex) {
+                    JOptionPane.showMessageDialog(this, 
+                        "Error booking appointment: " + ex.getMessage(), 
+                        "Database Error", JOptionPane.ERROR_MESSAGE);
+                }
+            } catch (java.text.ParseException e) {
                 JOptionPane.showMessageDialog(this, 
-                    "Error booking appointment: " + ex.getMessage(), 
-                    "Database Error", JOptionPane.ERROR_MESSAGE);
+                    "Invalid date format. Please use YYYY-MM-DD.", 
+                    "Input Error", JOptionPane.ERROR_MESSAGE);
             }
         }
     }

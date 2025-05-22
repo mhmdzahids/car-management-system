@@ -29,7 +29,7 @@ public class AppointmentForm extends JFrame {
     private void initComponents() {
         customerComboBox = new JComboBox<>();
         appointmentDateField = new JTextField(10);
-        statusComboBox = new JComboBox<>(new String[]{"Scheduled", "Confirmed", "In Progress", "Completed", "Cancelled"});
+        statusComboBox = new JComboBox<>(new String[]{"Scheduled", "Confirmed", "In Progress", "Completed", "Cancelled", "Pending"});
         addButton = new JButton("Add");
         updateButton = new JButton("Update");
         deleteButton = new JButton("Delete");
@@ -89,7 +89,7 @@ public class AppointmentForm extends JFrame {
         loadCustomers();
         
         // Load appointments
-        String[] columns = {"ID", "Customer", "Date", "Status"};
+        String[] columns = {"ID", "Customer", "Vehicle", "Date", "Status"};
         tableModel = new DefaultTableModel(columns, 0) {
             @Override
             public boolean isCellEditable(int row, int column) { return false; }
@@ -102,14 +102,17 @@ public class AppointmentForm extends JFrame {
         try (Connection conn = DatabaseConnection.getConnection();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(
-                 "SELECT a.id, c.name, a.appointment_date, a.status " +
-                 "FROM appointment a JOIN customer c ON a.customer_id = c.id " +
+                 "SELECT a.id, c.name, v.license_plate, a.appointment_date, a.status " +
+                 "FROM appointment a " +
+                 "JOIN customer c ON a.customer_id = c.id " +
+                 "LEFT JOIN vehicle v ON a.vehicle_id = v.id " +
                  "ORDER BY a.appointment_date")) {
 
             while (rs.next()) {
                 Vector<Object> row = new Vector<>();
                 row.add(rs.getInt("id"));
                 row.add(rs.getString("name"));
+                row.add(rs.getString("license_plate") != null ? rs.getString("license_plate") : "N/A");
                 row.add(rs.getString("appointment_date"));
                 row.add(rs.getString("status"));
                 tableModel.addRow(row);
